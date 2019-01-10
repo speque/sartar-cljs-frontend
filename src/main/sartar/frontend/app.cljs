@@ -13,10 +13,28 @@
     [:p (:query q)] 
     [:p (:description q)]
     [:ul
-      (for [option (:options q)]
-        [:li (:title option)])
+    (map-indexed 
+      (fn [idx option]
+        ^{:key (str "option-" idx)} [:li (:title option)])
+      (:options q))
     ]
   ])
+
+(defn- dec-question! []
+  (when (> @active-question 0)
+    (swap! active-question dec)))
+
+(defn- inc-question! []
+  (when (< @active-question (dec (count @questions)))
+    (swap! active-question inc)))
+
+(defn- key-handler [event]
+  
+  (let [key-name (.-key event)]
+    (case key-name
+      "ArrowLeft"  (dec-question!)
+      "ArrowRight" (inc-question!)
+      :default)))
 
 (defn app []
   (let [qs @questions
@@ -24,26 +42,27 @@
     (if (seq qs)
       [:div
       [question-component (nth qs active-question-index)]
-        [:input {:type "button" 
-                 :value "Previous!"
-                 :disabled (= active-question-index 0)
-                 :on-click #(swap! active-question dec)}]
-        [:input {:type "button" 
-                 :value "Next!"
-                 :disabled (= active-question-index (dec (count qs)))
-                 :on-click #(swap! active-question inc)}]
+        [:button.button.is-primary 
+          {:disabled (= active-question-index 0)
+           :on-click #(swap! active-question dec)}
+          "Previous"]
+        [:button.button.is-primary
+          {:disabled (= active-question-index (dec (count qs)))
+           :on-click #(swap! active-question inc)}
+          "Next"]
       ]
       [:div "No questions"])))
 
 (defn stop []
-  (js/console.log "Stopping..."))
+  (js/console.log "Stopping...")
+  (js/document.removeEventListener "keydown" key-handler))
 
 (defn start []
   (js/console.log "Starting...")
-  (r/render [app]
-            (.getElementById js/document "app"))
+  (js/document.addEventListener "keydown" key-handler)
+  (r/render [app] (.getElementById js/document "app"))
   (go 
-    (let [response (<! (http/get "http://localhost:3000" {:with-credentials? false}))]
+    (let [response (<! (http/get "http://localhost:3001" {:with-credentials? false}))]
       (reset! questions (:questions (:body response))))))
   
 (defn ^:export init []
