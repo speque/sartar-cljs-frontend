@@ -8,6 +8,7 @@
   "dependencies": {
     "create-react-class": "^15.6.3",
     "react": "^16.4.1",
-    "react-dom": "^16.4.1"
+    "react-dom": "^16.4.1",
+    "react-markdown": "^4.0.6"
   }
 }
