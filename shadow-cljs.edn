@@ -1,12 +1,11 @@
 ;; shadow-cljs configuration
-{:source-paths
- ["src/dev"
-  "src/main"
-  "src/test"]
+{:source-paths ["src/dev"
+                "src/main"
+                "src/test"]
 
- :dependencies
-   [[reagent "0.8.1"]
-   [cljs-http "0.1.45"]]
+ :dependencies [[reagent "0.8.1"]
+                [cljs-http "0.1.45"]
+                [vincit/venia "0.2.5"]]
 
  :builds
  {:frontend
@@ -14,9 +13,7 @@
    :output-dir "public/js"
    :asset-path "js"
    :modules {:main {:init-fn sartar.frontend.app/init}}
-   :devtools
-   {:before-load sartar.frontend.app/stop
-    :after-load sartar.frontend.app/start
-    :http-root "public"
-    :http-port 8080}
-   }}}
+   :devtools {:before-load sartar.frontend.app/stop
+              :after-load sartar.frontend.app/start
+              :http-root "public"
+              :http-port 8080}}}}

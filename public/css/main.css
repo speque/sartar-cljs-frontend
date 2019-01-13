@@ -1,5 +1,6 @@
 label.radio {
     display: block;
+    padding-bottom: 0.5em;
 }
 
 label.radio + .radio {
@@ -9,3 +10,18 @@ label.radio + .radio {
 input[type^="radio"] {
     margin-right: 1.5em;
 }
+
+@font-face {
+    font-family: 'Glorantha Core Runes';
+    src: url('../fonts/GloranthaCoreRunes.woff2') format('woff2');
+    font-weight: normal;
+    font-style: normal;
+}
+
+.runes {
+    font-family: 'Glorantha Core Runes';
+    text-align: justify;
+    font-size: 140%;
+    font-weight: bold;
+    margin-left: 0.5em;
+  }

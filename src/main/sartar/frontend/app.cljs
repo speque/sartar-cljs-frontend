@@ -1,29 +1,15 @@
 (ns sartar.frontend.app
   (:require-macros [cljs.core.async.macros :refer [go]])
-  (:require [reagent.core :as r]
-            ["react-markdown" :as ReactMarkdown]
+  (:require [sartar.frontend.components.question :refer [question-component]]
+            [reagent.core :as r]
             [cljs-http.client :as http]
             [cljs.core.async :refer [<!]]))
 
 (defonce questions (r/atom []))
 (defonce active-question (r/atom 0))
-
-(defn question-component [q]
-  [:div.q
-    [:h2.subtitle.is-h2 (:title q)]
-    [:p (:query q)]
-    [:p [:react-markdown (:description q)]]
-    [:div.control
-      (map-indexed
-        (fn [idx option]
-          ^{:key (str "option-" idx)}
-          [:label.radio
-            [:input {:type "radio" :name "answer"}]
-              [:> ReactMarkdown { :disallowedTypes ["list" "listItem" "paragraph"] :unwrapDisallowed true }
-              (:title option)]])
-        (:options q))
-    ]
-  ])
+(defonce answers (r/atom []))
+(defonce results (r/atom {}))
+(defonce is-submitting (r/atom false))
 
 (defn- dec-question! []
   (when (> @active-question 0)
@@ -33,31 +19,78 @@
   (when (< @active-question (dec (count @questions)))
     (swap! active-question inc)))
 
-(defn- key-handler [event]
+(defn- randomize-answers []
+  (reset! answers (vec (map #(rand-int (count (:options %))) @questions))))
 
+(defn- mask-answers [qs unmasked]
+  (map-indexed
+   (fn [idx a]
+     (let [q (nth qs idx)
+           disabled-by (:disabled_by q)]
+       (if (and
+            disabled-by
+            (= (nth unmasked (first disabled-by)) (second disabled-by)))
+         -1
+         a)))
+   unmasked))
+
+(defn- submit-answers []
+  (go
+    (let [qs @questions
+          as @answers
+          masked-answers (mask-answers qs as)
+          response (<! (http/post "http://localhost:3001" {:json-params {:answers masked-answers}
+                                                           :with-credentials? false}))]
+      (reset! is-submitting false)
+      (swap! results (:body response)))))
+
+(defn- key-handler [event]
   (let [key-name (.-key event)]
     (case key-name
       "ArrowLeft"  (dec-question!)
       "ArrowRight" (inc-question!)
+      "r" (randomize-answers)
       :default)))
 
 (defn app []
   (let [qs @questions
-        active-question-index @active-question]
+        active-question-index @active-question
+        current-answers @answers]
     (if (seq qs)
       [:div
-        [question-component (nth qs active-question-index)]
+       (let [active-question (nth qs active-question-index)
+             current-answer (nth current-answers active-question-index)
+             disabled-by (:disabled_by active-question)]
+         (if (and disabled-by (= (nth current-answers (first disabled-by)) (second disabled-by)))
+           [:h2.title.is-2 "Previous answer rendered this question irrelevant"]
+           [question-component
+            active-question
+            current-answer
+            (fn [answer] (swap! answers #(assoc % active-question-index answer)))]))
+
+       [:section.section
+        [:nav.pagination.is-centered {:role "navigation" :aria-label "pagination"}
+         [:a.pagination-previous
+          {:disabled (= active-question-index 0)
+           :on-click dec-question!}
+          "Previous"]
+         [:a.pagination-next
+          {:disabled (= active-question-index (dec (count qs)))
+           :on-click inc-question!}
+          "Next"]]
         [:section.section
-          [:nav.pagination.is-centered {:role "navigation" :aria-label "pagination"}
-            [:a.pagination-previous
-              {:disabled (= active-question-index 0)
-              :on-click #(swap! active-question dec)}
-              "Previous"]
-            [:a.pagination-next
-              {:disabled (= active-question-index (dec (count qs)))
-              :on-click #(swap! active-question inc)}
-              "Next"]]]]
-      [:div "No questions"])))
+         [:div.buttons.is-centered
+          [:button.button.is-info.is-outlined
+           {:on-click #(randomize-answers)}
+           "Randomize"]
+          [:button.button.is-success.is-outlined
+           {:class (when @is-submitting "is-loading")
+            :on-click #(do
+                         (reset! is-submitting true)
+                         (submit-answers))}
+           "Submit"]]]]]
+
+      [:div.content "No questions"])))
 
 (defn stop []
   (js/console.log "Stopping...")
@@ -68,8 +101,10 @@
   (js/document.addEventListener "keydown" key-handler)
   (r/render [app] (.getElementById js/document "app"))
   (go
-    (let [response (<! (http/get "http://localhost:3001" {:with-credentials? false}))]
-      (reset! questions (:questions (:body response))))))
+    (let [response (<! (http/get "http://localhost:3001" {:with-credentials? false}))
+          fetched-questions (:questions (:body response))]
+      (reset! answers (vec (repeat (count fetched-questions) -1)))
+      (reset! questions fetched-questions))))
 
 (defn ^:export init []
   (start))
