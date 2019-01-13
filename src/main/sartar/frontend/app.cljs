@@ -8,6 +8,7 @@
 (defonce questions (r/atom []))
 (defonce active-question (r/atom 0))
 (defonce answers (r/atom []))
+(defonce inputs (r/atom []))
 (defonce results (r/atom {}))
 (defonce is-submitting (r/atom false))
 
@@ -39,7 +40,7 @@
     (let [qs @questions
           as @answers
           masked-answers (mask-answers qs as)
-          response (<! (http/post "http://localhost:3001" {:json-params {:answers masked-answers}
+          response (<! (http/post "http://localhost:3001" {:json-params {:answers masked-answers :inputs @inputs}
                                                            :with-credentials? false}))]
       (reset! is-submitting false)
       (swap! results (:body response)))))
@@ -102,8 +103,10 @@
   (r/render [app] (.getElementById js/document "app"))
   (go
     (let [response (<! (http/get "http://localhost:3001" {:with-credentials? false}))
-          fetched-questions (:questions (:body response))]
-      (reset! answers (vec (repeat (count fetched-questions) -1)))
+          fetched-questions (:questions (:body response))
+          number-of-questions (count fetched-questions)]
+      (reset! answers (vec (repeat number-of-questions -1)))
+      (reset! inputs (vec (repeat number-of-questions nil)))
       (reset! questions fetched-questions))))
 
 (defn ^:export init []
