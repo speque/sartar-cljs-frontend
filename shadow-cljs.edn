@@ -3,9 +3,11 @@
                 "src/main"
                 "src/test"]
 
- :dependencies [[reagent "0.8.1"]
-                [cljs-http "0.1.45"]
-                [vincit/venia "0.2.5"]]
+ :dependencies [[cljs-http "0.1.45"]
+                [vincit/venia "0.2.5"]
+                [re-frame "0.10.9"]
+                [day8.re-frame/http-fx "0.1.6"]
+]
 
  :builds
  {:frontend

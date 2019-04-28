@@ -5,30 +5,90 @@
             [reagent.core :as r]
             [goog.string :as gstring]
             [cljs-http.client :as http]
+            [re-frame.core :as rf]
+            [re-frame.registrar :as rf.reg]
+            [day8.re-frame.http-fx]
+            [ajax.core :as ajax]
             [cljs.core.async :refer [<!]]))
 
-(defonce questions (r/atom []))
-(defonce active-question (r/atom 0))
-(defonce answers (r/atom []))
-(defonce inputs (r/atom []))
-(defonce results (r/atom nil))
-(defonce is-submitting (r/atom false))
+(rf/reg-event-db
+  :initialize
+  (fn [_ _]
+    (js/console.log "Initializing...")
+    {:questions []
+     :active-question 0
+     :answers []
+     :inputs []
+     :results {}
+     :is-submitting false}))
 
-(defn- dec-question! []
-  (when (pos? @active-question)
-    (swap! active-question dec)))
+(rf/reg-event-db
+  :questions-fetched
+  (fn [db [_ questions]]
+    (js/console.log "Questions fetched")
+    (let [number-of-questions (count questions)]
+      (assoc db
+        :questions questions
+        :answers (vec (repeat number-of-questions -1))
+        :inputs (vec (repeat number-of-questions nil))))))
 
-(defn- inc-question! []
-  (when (< @active-question (dec (count @questions)))
-    (swap! active-question inc)))
+(rf/reg-event-db
+  :inc-question
+  (fn [db]
+    (let [number-of-questions (count (:questions db))
+          active-question (:active-question db)]
+      (if (< active-question (dec number-of-questions))
+        (update db :active-question inc)
+        db))))
 
-(defn- set-question! [new-active-question]
-  (reset! active-question new-active-question))
+(rf/reg-event-db
+  :dec-question
+  (fn [db]
+    (let [active-question (:active-question db)]
+      (if (> active-question 0)
+        (update db :active-question dec)
+        db))))
 
-(defn- randomize-answers! []
-  (reset! answers (vec (map #(rand-int (count (:options %))) @questions))))
+(rf/reg-event-db
+ :set-question
+ (fn [db [_ new-index]]
+    (assoc db :active-question new-index)))
+
+(rf/reg-event-db
+  :randomize
+  (fn [db]
+    (assoc db :answers (vec (map (fn [q] 
+                                   (let [options (:options q)
+                                         number-of-options (count options)] 
+                                     (if (> number-of-options 0)
+                                       (rand-int number-of-options)
+                                       -1))) 
+                                 (:questions db))))))
+
+(rf/reg-event-db
+  :set-answer
+  (fn [db [_ index answer]]
+    (update db :answers #(assoc % index answer))))
+
+(rf/reg-event-db
+  :set-submit_status
+  (fn [db [_ status]]
+    (assoc db :is-submitting status)))
+
+(rf/reg-event-db
+  :good-post-result
+  (fn [db]
+    (js/console.log "Good post!")
+    (assoc db :is-submitting false)))
+
+(rf/reg-event-db
+  :bad-post-result
+  (fn [db]
+    (js/console.log "Bad post!")
+    (assoc db :is-submitting false)))
 
 (defn- mask-answers [qs unmasked-answers]
+  (js/console.log "masking")
   (map-indexed
    (fn [idx a]
      (let [q (nth qs idx)
@@ -42,64 +102,83 @@
          a)))
    unmasked-answers))
 
-(defn- submit-answers []
-  (go
-    (let [qs @questions
-          as @answers
-          masked-answers (mask-answers qs as)
-          response (<! (http/post "http://localhost:3001" {:json-params {:answers masked-answers :inputs @inputs}
-                                                           :with-credentials? false}))]
-      (reset! is-submitting false)
-      (reset! results (:body response)))))
+(rf/reg-event-fx
+  :submit
+  (fn [{db :db} _]
+    (let [qs (:questions db)
+          as (:answers db)
+          inputs (:inputs db)
+          masked-answers (mask-answers qs as)]
+      (js/console.log "submitting")
+      {:http-xhrio {:method          :post
+                    :uri             "http://localhost:3001"
+                    :params          {:answers masked-answers :inputs inputs}
+                    :timeout         5000
+                    :format          (ajax/json-request-format)
+                    :response-format (ajax/json-response-format {:keywords? true})
+                    :on-success      [:good-post-result]
+                    :on-failure      [:bad-post-result]}
+       :db (assoc db :is-submitting true)})))
+
+(rf/reg-sub
+  :questions
+  (fn [db _]
+    (:questions db)))
+(rf/reg-sub
+  :answers
+  (fn [db _]
+    (:answers db)))
+(rf/reg-sub
+ :results
+ (fn [db _]
+   (:results db)))
+(rf/reg-sub
+  :active-question
+  (fn [db _]
+    (:active-question db)))
+(rf/reg-sub
+  :submit-status
+  (fn [db _]
+    (:is-submitting db)))
 
 (defn- key-handler [event]
   (let [key-name (.-key event)]
     (case key-name
-      "ArrowLeft"  (dec-question!)
-      "ArrowRight" (inc-question!)
-      "r" (randomize-answers!)
+      "ArrowLeft"  (rf/dispatch [:dec-question])
+      "ArrowRight" (rf/dispatch [:inc-question])
+      "r" (rf/dispatch [:randomize])
       :default)))
 
-(defn- submitting-disabled? []
-  (let [qs @questions
-        current-answers @answers
-        invalid (keep-indexed
-                 (fn [i answer]
-                   (let [q (nth qs i)
-                         disabled-by (:disabled_by q)]
-                     (if (or
-                          ; question has not been answered AND
-                          ; it has not been disabled by another
-                          ; answer in another question
-                          (and
-                           (< answer 0)
-                           (not
-                            (and
-                             disabled-by
-                             (=
-                              (nth current-answers (first disabled-by))
-                              (second disabled-by)))))
-                          ; question has been answered and the chosen
-                          ; option has not been disabled by another
-                          ; option in another question
-                           (let [disabled-by-option (:disabled_by (nth (:options q) answer))]
-                             (and
-                              (>= answer 0)
-                              disabled-by-option
-                              (=
-                               (nth current-answers (first disabled-by-option))
-                               (second disabled-by-option)))))
-                       answer
-                       nil)))
-                 current-answers)]
-    (pos? (count (vec invalid)))))
-
+(defn- submitting-disabled? [qs current-answers]
+  (let [statuses (map-indexed
+                  (fn [i answer]
+                    (let [q (nth qs i)
+                          disabled-by (:disabled_by q)]
+                      (cond
+                        (= answer -1) (let [has-no-options (= 0 (count (:options q)))
+                                            is-disabled (and
+                                                         disabled-by
+                                                         (= (nth current-answers (first disabled-by)) (second disabled-by)))]
+                                        (cond
+                                          has-no-options {:valid true :case "Answer -1 but has no options"}
+                                          (not is-disabled) {:valid false :case "Answer -1, has options but is not disabled"}
+                                          :default {:valid true :case "Answer -1, has options but is disabled"}))
+                        (and (>= answer 0) (let [disabled-by-option (:disabled_by (nth (:options q) answer))
+                                                 is-disabled (and disabled-by-option (=
+                                                                                      (nth current-answers (first disabled-by-option))
+                                                                                      (second disabled-by-option)))]))
+                        {:valid false :case "Answered but the chosen option is disabled by another answer"}
+                        :default {:valid true :case "Default"})))
+                  current-answers)]
+    (some #(not (:valid %)) statuses)))
+    
 (defn app []
-  (let [qs @questions
+  ;; TODO break these
+  (let [qs @(rf/subscribe [:questions])
         number-of-questions (count qs)
-        active-question-index @active-question
-        current-answers @answers
-        current-results @results]
+        active-question-index @(rf/subscribe [:active-question])
+        current-answers @(rf/subscribe [:answers])
+        current-results @(rf/subscribe [:results])]
     [:div
      (if (seq qs)
        [:div
@@ -111,23 +190,23 @@
             [question-component
              active-question
              current-answer
-             (fn [answer] (swap! answers #(assoc % active-question-index answer)))]))
+             #(rf/dispatch [:set-answer active-question-index %])]))
 
         [:section.section
          [:nav.pagination.is-centered {:role "navigation" :aria-label "pagination"}
           [:a.pagination-previous
            {:disabled (= active-question-index 0)
-            :on-click dec-question!}
+            :on-click #(rf/dispatch [:dec-question])}
            "Previous"]
           [:a.pagination-next
            {:disabled (= active-question-index (dec (count qs)))
-            :on-click inc-question!}
+            :on-click #(rf/dispatch [:inc-question])}
            "Next"]
           [:ul.pagination-list
            [:li
             [:a.pagination-link
              {:class (when (= 0 active-question-index) "is-current")
-              :on-click #(set-question! 0)
+              :on-click #(rf/dispatch [:set-question 0])
               :aria-label "Ensimmäinen"}
              1]]
            (when (> active-question-index 1)
@@ -144,7 +223,7 @@
            [:li
             [:a.pagination-link
              {:class (when (= (dec number-of-questions) active-question-index) "is-current")
-              :on-click #(set-question! (dec number-of-questions))
+              :on-click #(rf/dispatch [:set-question (dec number-of-questions)])
               :aria-label "Viimeinen"}
              number-of-questions]]]]
 
@@ -152,19 +231,17 @@
          [:section.section
           [:div.buttons.is-centered
            [:button.button.is-info.is-outlined
-            {:on-click randomize-answers!}
+            {:on-click #(rf/dispatch [:randomize])}
             "Randomize"]
            [:button.button.is-success.is-outlined
-            {:class (when @is-submitting "is-loading")
-             :disabled (submitting-disabled?)
-             :on-click #(do
-                          (reset! is-submitting true)
-                          (submit-answers))}
+            {:class (when @(rf/subscribe [:submit-status]) "is-loading")
+             :disabled (submitting-disabled? qs current-answers)
+             :on-click #((rf/dispatch [:submit]))}
             "Submit"]]]]]
 
        [:div.content "No questions"])
 
-     (if (not-empty current-results)
+     (when (not-empty current-results)
        [results-component current-results])]))
 
 (defn stop []
@@ -172,16 +249,14 @@
   (js/document.removeEventListener "keydown" key-handler))
 
 (defn start []
-  (js/console.log "Starting...")
+  (js/console.log "Starting....")
+  (rf/dispatch-sync [:initialize])
   (js/document.addEventListener "keydown" key-handler)
   (r/render [app] (.getElementById js/document "app"))
   (go
     (let [response (<! (http/get "http://localhost:3001" {:with-credentials? false}))
-          fetched-questions (:questions (:body response))
-          number-of-questions (count fetched-questions)]
-      (reset! answers (vec (repeat number-of-questions -1)))
-      (reset! inputs (vec (repeat number-of-questions nil)))
-      (reset! questions fetched-questions))))
+          fetched-questions (:questions (:body response))]
+      (rf/dispatch [:questions-fetched fetched-questions]))))
 
 (defn ^:export init []
   (start))
