@@ -6,7 +6,6 @@
             [goog.string :as gstring]
             [cljs-http.client :as http]
             [re-frame.core :as rf]
-            [re-frame.registrar :as rf.reg]
             [day8.re-frame.http-fx]
             [ajax.core :as ajax]
             [cljs.core.async :refer [<!]]))
@@ -162,13 +161,13 @@
                                         (cond
                                           has-no-options {:valid true :case "Answer -1 but has no options"}
                                           (not is-disabled) {:valid false :case "Answer -1, has options but is not disabled"}
-                                          :default {:valid true :case "Answer -1, has options but is disabled"}))
-                        (and (>= answer 0) (let [disabled-by-option (:disabled_by (nth (:options q) answer))
-                                                 is-disabled (and disabled-by-option (=
-                                                                                      (nth current-answers (first disabled-by-option))
-                                                                                      (second disabled-by-option)))]))
-                        {:valid false :case "Answered but the chosen option is disabled by another answer"}
-                        :default {:valid true :case "Default"})))
+                                          :default {:valid true :case "Answer -1 and has options but is disabled"}))
+                        (and (>= answer 0) (let [disabled-by-option (:disabled_by (nth (:options q) answer))]
+                                                 (and disabled-by-option (=
+                                                                          (nth current-answers (first disabled-by-option))
+                                                                          (second disabled-by-option)))))
+                          {:valid false :case "Answered but the chosen option is disabled by another answer"}
+                        :default {:valid true :case "Default" :answer answer})))
                   current-answers)]
     (some #(not (:valid %)) statuses)))
     
