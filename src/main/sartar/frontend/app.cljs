@@ -24,17 +24,19 @@
 (defn- randomize-answers []
   (reset! answers (vec (map #(rand-int (count (:options %))) @questions))))
 
-(defn- mask-answers [qs unmasked]
+(defn- mask-answers [qs unmasked-answers]
   (map-indexed
    (fn [idx a]
      (let [q (nth qs idx)
+           options (:options q)
            disabled-by (:disabled_by q)]
-       (if (and
-            disabled-by
-            (= (nth unmasked (first disabled-by)) (second disabled-by)))
+       (if (or (not (seq options))
+               (and
+                disabled-by
+                (= (nth unmasked-answers (first disabled-by)) (second disabled-by))))
          -1
          a)))
-   unmasked))
+   unmasked-answers))
 
 (defn- submit-answers []
   (go
@@ -59,7 +61,6 @@
         active-question-index @active-question
         current-answers @answers
         current-results @results]
-    (js/console.log current-results)
     [:div
      (if (seq qs)
        [:div
