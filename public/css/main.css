@@ -24,4 +24,9 @@ input[type^="radio"] {
     font-size: 140%;
     font-weight: bold;
     margin-left: 0.5em;
+    margin-right: 0.5em;
   }
+
+.modifier {
+    text-transform: capitalize;
+}
