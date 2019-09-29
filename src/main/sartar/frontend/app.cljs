@@ -3,6 +3,7 @@
   (:require [sartar.frontend.components.question :refer [question-component]]
             [sartar.frontend.components.results :refer [results-component]]
             [reagent.core :as r]
+            [goog.string :as gstring]
             [cljs-http.client :as http]
             [cljs.core.async :refer [<!]]))
 
@@ -21,7 +22,10 @@
   (when (< @active-question (dec (count @questions)))
     (swap! active-question inc)))
 
-(defn- randomize-answers []
+(defn- set-question! [new-active-question]
+  (reset! active-question new-active-question))
+
+(defn- randomize-answers! []
   (reset! answers (vec (map #(rand-int (count (:options %))) @questions))))
 
 (defn- mask-answers [qs unmasked-answers]
@@ -53,11 +57,46 @@
     (case key-name
       "ArrowLeft"  (dec-question!)
       "ArrowRight" (inc-question!)
-      "r" (randomize-answers)
+      "r" (randomize-answers!)
       :default)))
+
+(defn- submitting-disabled? []
+  (let [qs @questions
+        current-answers @answers
+        invalid (keep-indexed
+                 (fn [i answer]
+                   (let [q (nth qs i)
+                         disabled-by (:disabled_by q)]
+                     (if (or
+                          ; question has not been answered AND
+                          ; it has not been disabled by another
+                          ; answer in another question
+                          (and
+                           (< answer 0)
+                           (not
+                            (and
+                             disabled-by
+                             (=
+                              (nth current-answers (first disabled-by))
+                              (second disabled-by)))))
+                          ; question has been answered and the chosen
+                          ; option has not been disabled by another
+                          ; option in another question
+                           (let [disabled-by-option (:disabled_by (nth (:options q) answer))]
+                             (and
+                              (>= answer 0)
+                              disabled-by-option
+                              (=
+                               (nth current-answers (first disabled-by-option))
+                               (second disabled-by-option)))))
+                       answer
+                       nil)))
+                 current-answers)]
+    (pos? (count (vec invalid)))))
 
 (defn app []
   (let [qs @questions
+        number-of-questions (count qs)
         active-question-index @active-question
         current-answers @answers
         current-results @results]
@@ -83,19 +122,48 @@
           [:a.pagination-next
            {:disabled (= active-question-index (dec (count qs)))
             :on-click inc-question!}
-           "Next"]]
+           "Next"]
+          [:ul.pagination-list
+           [:li
+            [:a.pagination-link
+             {:class (when (= 0 active-question-index) "is-current")
+              :on-click #(set-question! 0)
+              :aria-label "Ensimmäinen"}
+             1]]
+           (when (> active-question-index 1)
+             [:li
+              [:span.pagination-ellipsis (gstring/unescapeEntities "&hellip;")]])
+           (when (and (> active-question-index 0) (< active-question-index (dec number-of-questions)))
+             [:li
+              [:a.pagination-link
+               {:class "is-current" :aria-label "Nykyinen"}
+               (+ 1 active-question-index)]])
+           (when (< active-question-index number-of-questions)
+             [:li
+              [:span.pagination-ellipsis (gstring/unescapeEntities "&hellip;")]])
+           [:li
+            [:a.pagination-link
+             {:class (when (= (dec number-of-questions) active-question-index) "is-current")
+              :on-click #(set-question! (dec number-of-questions))
+              :aria-label "Viimeinen"}
+             number-of-questions]]]]
+
+
          [:section.section
           [:div.buttons.is-centered
            [:button.button.is-info.is-outlined
-            {:on-click #(randomize-answers)}
+            {:on-click randomize-answers!}
             "Randomize"]
            [:button.button.is-success.is-outlined
             {:class (when @is-submitting "is-loading")
+             :disabled (submitting-disabled?)
              :on-click #(do
                           (reset! is-submitting true)
                           (submit-answers))}
             "Submit"]]]]]
+
        [:div.content "No questions"])
+
      (if (not-empty current-results)
        [results-component current-results])]))
 
