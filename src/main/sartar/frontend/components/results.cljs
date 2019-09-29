@@ -36,7 +36,9 @@
    [:div.columns
     [:div.column
      [:h4 "Ancient enemy"]
-     [:p (or (:ancient_enemy current-results) "None")]
+     (if (:ancient_enemy current-results)
+       [:> ReactMarkdown (:ancient_enemy current-results)]
+       [:p "None"])
 
      [:h4 "New enemy"]
      [:p (or (:new_enemy current-results) "None")]
