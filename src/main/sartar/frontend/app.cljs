@@ -76,18 +76,17 @@
 
 (rf/reg-event-db
   :good-post-result
-  (fn [db]
+  (fn [db [_ result]]
     (js/console.log "Good post!")
-    (assoc db :is-submitting false)))
+    (assoc db :is-submitting false :results result)))
 
 (rf/reg-event-db
   :bad-post-result
   (fn [db]
     (js/console.log "Bad post!")
-    (assoc db :is-submitting false)))
+    (assoc db :is-submitting false))) ;; TODO show error
 
 (defn- mask-answers [qs unmasked-answers]
-  (js/console.log "masking")
   (map-indexed
    (fn [idx a]
      (let [q (nth qs idx)
@@ -108,7 +107,6 @@
           as (:answers db)
           inputs (:inputs db)
           masked-answers (mask-answers qs as)]
-      (js/console.log "submitting")
       {:http-xhrio {:method          :post
                     :uri             "http://localhost:3001"
                     :params          {:answers masked-answers :inputs inputs}
@@ -235,7 +233,7 @@
            [:button.button.is-success.is-outlined
             {:class (when @(rf/subscribe [:submit-status]) "is-loading")
              :disabled (submitting-disabled? qs current-answers)
-             :on-click #((rf/dispatch [:submit]))}
+             :on-click #(rf/dispatch [:submit])}
             "Submit"]]]]]
 
        [:div.content "No questions"])
